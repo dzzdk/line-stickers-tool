@@ -2,8 +2,8 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LINE 貼圖智慧大師 - 互動微調版</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>LINE 貼圖智慧大師 - 旗艦修正版 v1.1.0</title>
     <!-- 載入必要資源 -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -12,54 +12,90 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        body { font-family: 'Noto Sans TC', sans-serif; -webkit-tap-highlight-color: transparent; }
-        [animate-in] { animation: fade-in 0.5s ease-out; }
-        @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-        .grid-line-h:hover, .grid-line-v:hover { background-color: rgba(59, 130, 246, 0.5); }
-        .select-none { user-select: none; }
+        :root { --vh: 100dvh; }
+        body { 
+            font-family: 'Noto Sans TC', sans-serif; 
+            -webkit-tap-highlight-color: transparent;
+            overscroll-behavior: none;
+            background-color: #f1f5f9;
+            height: var(--vh);
+            overflow: hidden;
+            margin: 0;
+        }
+        #root { height: 100%; }
+        
+        input[type=range] { -webkit-appearance: none; background: transparent; width: 100%; height: 32px; }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none; height: 26px; width: 26px;
+            border-radius: 50%; background: #2563eb; cursor: pointer;
+            box-shadow: 0 4px 10px rgba(37,99,235,0.4); margin-top: -10px; border: 2px solid white;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%; height: 6px; cursor: pointer; background: #e2e8f0; border-radius: 10px;
+        }
+
+        /* 浮動式面板 */
+        .floating-sheet {
+            position: fixed; bottom: 0; left: 0; right: 0;
+            background: white; border-radius: 2rem 2rem 0 0;
+            box-shadow: 0 -15px 50px rgba(0,0,0,0.5); z-index: 300;
+            transition: transform 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .sheet-collapsed { transform: translateY(calc(100% - 48px)); }
+        .no-select { user-select: none; -webkit-user-select: none; }
+        
+        /* 核心修正：圖片工作區與滾動 */
+        .workspace {
+            position: absolute; top: 56px; left: 0; right: 0; bottom: 48px;
+            overflow-y: auto; background-color: #000;
+            display: flex; justify-content: center; align-items: center;
+            padding: 12px; box-sizing: border-box;
+            -webkit-overflow-scrolling: touch;
+        }
+        /* 關鍵：容器尺寸跟隨圖片實際顯示尺寸，網格線才會覆蓋完整圖片 */
+        .precise-image-container {
+            position: relative;
+            display: inline-block;
+            flex: 0 0 auto;
+            max-width: 100%;
+            max-height: 100%;
+            line-height: 0;
+        }
+        .precise-image-container img {
+            width: auto;
+            height: auto;
+            max-width: 100%;
+            max-height: calc(100dvh - 56px - 48px - 24px);
+            display: block;
+            background: white;
+            box-shadow: 0 0 50px rgba(0,0,0,0.8);
+        }
     </style>
 </head>
-<body class="bg-slate-50">
+<body class="no-select">
     <div id="root"></div>
 
     <script type="text/babel">
         const { useState, useRef, useEffect, Fragment } = React;
 
-        // 內建 SVG 圖標
         const Icon = ({ name, className = "" }) => {
             const icons = {
                 upload: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m14-7-5-5-5 5m5-5v12"/>,
+                scissors: <Fragment><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4 8.12 15.88M14.47 14.48 20 20M8.12 8.12 12 12"/></Fragment>,
                 download: <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4m-7-11v12m-4-4 4 4 4-4"/>,
                 trash: <path d="M3 6h18m-2 0v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6m3 0V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2m-6 5v6m4-6v6"/>,
-                scissors: (
-                    <Fragment>
-                        <circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><line x1="20" y1="4" x2="8.12" y2="15.88"/><line x1="14.47" y1="14.48" x2="20" y2="20"/><line x1="8.12" y1="8.12" x2="12" y2="12"/>
-                    </Fragment>
-                ),
-                grid: (
-                    <Fragment>
-                        <rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/>
-                    </Fragment>
-                ),
+                magic: <path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41M15 12l-2-2m-4 0l4 4"/>,
+                grid: <Fragment><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></Fragment>,
                 refresh: <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8m0 0V2m0 6h-6m6 4a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16m0 0v6m0-6h6"/>,
-                folder: <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>,
                 archive: <path d="M21 8V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v2m18 0v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8m18 0H3m7 5h4"/>,
+                box: <Fragment><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/></Fragment>,
+                folder: <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/>,
                 x: <path d="M18 6 6 18M6 6l12 12"/>,
                 check: <path d="M20 6 9 17l-5-5"/>,
-                shield: <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>,
-                alert: <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0zM12 9v4m0 4h.01" />,
-                image: (
-                    <Fragment>
-                        <rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/>
-                    </Fragment>
-                ),
-                move: <path d="m15 15-3 3-3-3m6-6-3-3-3 3M18 12l3-3-3-3m-6 6-3-3 3-3"/>
+                image: <Fragment><rect width="18" height="18" x="3" y="3" rx="2" ry="2"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21"/></Fragment>,
+                cloudDown: <path d="M4 14.899A7 7 0 1 1 15.71 8h1.79a4.5 4.5 0 0 1 2.5 8.242M12 12v9m-4-4 4 4 4-4"/>
             };
-            return (
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={className}>
-                    {icons[name]}
-                </svg>
-            );
+            return <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className={className}>{icons[name]}</svg>;
         };
 
         const App = () => {
@@ -69,33 +105,23 @@
             const [tolerance, setTolerance] = useState(70);
             const [slicingId, setSlicingId] = useState(null);
             const [isBatchSliceOpen, setIsBatchSliceOpen] = useState(false);
-            const [grid, setGrid] = useState({ rows: 4, cols: 4 });
-            const [errorMsg, setErrorMsg] = useState(null);
+            const [grid, setGrid] = useState({ rows: 3, cols: 3 });
+            const [isControlExpanded, setIsControlExpanded] = useState(true);
             const fileInputRef = useRef(null);
 
-            // 切片線條位置 (0~1)
             const [vLines, setVLines] = useState([]);
             const [hLines, setHLines] = useState([]);
-            const previewContainerRef = useRef(null);
-
-            // 初始化線條
-            useEffect(() => {
-                const newV = [];
-                for (let i = 1; i < grid.cols; i++) newV.push(i / grid.cols);
-                setVLines(newV);
-                const newH = [];
-                for (let i = 1; i < grid.rows; i++) newH.push(i / grid.rows);
-                setHLines(newH);
-            }, [grid.rows, grid.cols, slicingId, isBatchSliceOpen]);
+            const imageRef = useRef(null);
 
             const isFileSystemSupported = typeof window.showDirectoryPicker === 'function';
 
+            // 初始化與調整網格線
             useEffect(() => {
-                if (errorMsg) {
-                    const timer = setTimeout(() => setErrorMsg(null), 5000);
-                    return () => clearTimeout(timer);
-                }
-            }, [errorMsg]);
+                const newV = []; for (let i = 1; i < grid.cols; i++) newV.push(i / grid.cols);
+                setVLines(newV);
+                const newH = []; for (let i = 1; i < grid.rows; i++) newH.push(i / grid.rows);
+                setHLines(newH);
+            }, [grid.rows, grid.cols, slicingId, isBatchSliceOpen]);
 
             const handleFileUpload = (e) => {
                 const files = Array.from(e.target.files);
@@ -116,7 +142,7 @@
                 if (fileInputRef.current) fileInputRef.current.value = "";
             };
 
-            // 智慧邊緣+飽和度防護去背
+            // 洪水填充去背 (Flood Fill)
             const removeWhiteBackgroundSmart = (dataUrl, currentTolerance) => {
                 return new Promise((resolve) => {
                     const img = new Image();
@@ -127,42 +153,24 @@
                         ctx.drawImage(img, 0, 0);
                         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
                         const data = imageData.data;
-                        const width = canvas.width; const height = canvas.height;
-                        const visited = new Uint8Array(width * height);
+                        const w = canvas.width; const h = canvas.height;
+                        const visited = new Uint8Array(w * h);
                         const queue = [];
-                        
-                        const isBackground = (idx) => {
+                        const isBg = (idx) => {
                             const r = data[idx], g = data[idx+1], b = data[idx+2];
                             const diff = Math.max(Math.abs(r-255), Math.abs(g-255), Math.abs(b-255));
-                            const matchesColor = diff < currentTolerance;
-                            const colorDiff = Math.max(Math.abs(r-g), Math.abs(g-b), Math.abs(r-b));
-                            // 嚴格飽和度檢查：只要有一點膚色(暖色)，就視為主體保護
-                            const isNeutral = colorDiff < 15; 
-                            const isDeep = (r + g + b) < 450; 
-                            return matchesColor && isNeutral && !isDeep;
+                            const cd = Math.max(Math.abs(r-g), Math.abs(g-b), Math.abs(r-b));
+                            return diff < currentTolerance && cd < 15 && (r+g+b) > 420;
                         };
-
-                        for (let x = 0; x < width; x++) {
-                            if (isBackground((0 * width + x) * 4)) queue.push(x, 0);
-                            if (isBackground(((height - 1) * width + x) * 4)) queue.push(x, height - 1);
-                        }
-                        for (let y = 0; y < height; y++) {
-                            if (isBackground((y * width + 0) * 4)) queue.push(0, y);
-                            if (isBackground((y * width + (width - 1)) * 4)) queue.push(width - 1, y);
-                        }
-
+                        for (let x = 0; x < w; x++) { if (isBg((0 * w + x) * 4)) queue.push(x, 0); if (isBg(((h - 1) * w + x) * 4)) queue.push(x, h - 1); }
+                        for (let y = 0; y < h; y++) { if (isBg((y * w + 0) * 4)) queue.push(0, y); if (isBg((y * w + (w - 1)) * 4)) queue.push(w - 1, y); }
                         let head = 0;
                         while (head < queue.length) {
                             const x = queue[head++], y = queue[head++];
-                            const pos = y * width + x;
-                            if (visited[pos]) continue;
-                            visited[pos] = 1;
+                            const pos = y * w + x; if (visited[pos]) continue; visited[pos] = 1;
                             data[pos * 4 + 3] = 0;
-                            [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]].forEach(([nx, ny]) => {
-                                if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
-                                    const nPos = ny * width + nx;
-                                    if (!visited[nPos] && isBackground(nPos * 4)) queue.push(nx, ny);
-                                }
+                            [[x+1, y], [x-1, y], [x, y+1], [x, y-1]].forEach(([nx, ny]) => {
+                                if (nx >= 0 && nx < w && ny >= 0 && ny < h && !visited[ny * w + nx] && isBg((ny * w + nx) * 4)) queue.push(nx, ny);
                             });
                         }
                         ctx.putImageData(imageData, 0, 0);
@@ -172,278 +180,244 @@
                 });
             };
 
-            const handleLineMove = (type, index, e) => {
-                if (!previewContainerRef.current) return;
-                const rect = previewContainerRef.current.getBoundingClientRect();
-                const move = (moveEvent) => {
-                    let percent;
-                    if (type === 'v') {
-                        percent = (moveEvent.clientX - rect.left) / rect.width;
-                        setVLines(prev => {
-                            const next = [...prev]; next[index] = Math.max(0.01, Math.min(0.99, percent));
-                            return next.sort((a, b) => a - b);
-                        });
+            const downloadSingle = async (dataUrl, name) => {
+                try {
+                    const response = await fetch(dataUrl);
+                    const blob = await response.blob();
+                    if (typeof window.showSaveFilePicker === 'function') {
+                        const handle = await window.showSaveFilePicker({ suggestedName: `${name}.png`, types: [{ description: 'PNG', accept: {'image/png': ['.png']} }] });
+                        const writable = await handle.createWritable();
+                        await writable.write(blob); await writable.close();
                     } else {
-                        percent = (moveEvent.clientY - rect.top) / rect.height;
-                        setHLines(prev => {
-                            const next = [...prev]; next[index] = Math.max(0.01, Math.min(0.99, percent));
-                            return next.sort((a, b) => a - b);
-                        });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a'); a.href = url; a.download = `${name}.png`;
+                        document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
                     }
-                };
-                const up = () => {
-                    window.removeEventListener('mousemove', move);
-                    window.removeEventListener('mouseup', up);
-                };
-                window.addEventListener('mousemove', move);
-                window.addEventListener('mouseup', up);
-            };
-
-            const executeSlice = async (targets) => {
-                if (targets.length === 0) return;
-                setIsProcessing(true);
-                try {
-                    const allNewSlices = [];
-                    const idsToRemove = targets.map(t => t.id);
-                    const fullV = [0, ...vLines, 1];
-                    const fullH = [0, ...hLines, 1];
-
-                    for (const target of targets) {
-                        const img = await new Promise(res => {
-                            const i = new Image(); i.onload = () => res(i);
-                            i.src = target.processed || target.original;
-                        });
-                        for (let r = 0; r < fullH.length - 1; r++) {
-                            for (let c = 0; c < fullV.length - 1; c++) {
-                                const sx = fullV[c] * img.width; const sy = fullH[r] * img.height;
-                                const sw = (fullV[c+1] - fullV[c]) * img.width; const sh = (fullH[r+1] - fullH[r]) * img.height;
-                                const canvas = document.createElement('canvas');
-                                canvas.width = sw; canvas.height = sh;
-                                const ctx = canvas.getContext('2d');
-                                ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
-                                const isAlreadyProcessed = !!target.processed;
-                                allNewSlices.push({
-                                    id: Math.random().toString(36).substr(2, 9),
-                                    original: canvas.toDataURL('image/png'),
-                                    processed: isAlreadyProcessed ? canvas.toDataURL('image/png') : null,
-                                    name: `${target.name}_${r+1}_${c+1}`,
-                                    status: isAlreadyProcessed ? 'done' : 'pending'
-                                });
-                            }
-                        }
-                    }
-                    setImages(prev => [...prev.filter(i => !idsToRemove.includes(i.id)), ...allNewSlices]);
-                } finally { setIsProcessing(false); setSlicingId(null); setIsBatchSliceOpen(false); }
-            };
-
-            const processAll = async () => {
-                const pending = images.filter(img => !img.processed);
-                if (pending.length === 0) return;
-                setIsProcessing(true);
-                try {
-                    for (const img of pending) {
-                        setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: 'processing' } : i));
-                        const result = await removeWhiteBackgroundSmart(img.original, tolerance);
-                        setImages(prev => prev.map(i => i.id === img.id ? { ...i, processed: result, status: 'done' } : i));
-                    }
-                } finally { setIsProcessing(false); }
+                } catch (e) {}
             };
 
             const downloadAsZip = async () => {
-                const ready = images.filter(img => img.processed);
+                const ready = images.filter(i => i.processed);
                 if (ready.length === 0) return;
                 setIsDownloading(true);
                 try {
                     const zip = new JSZip();
-                    for (const img of ready) {
-                        const response = await fetch(img.processed);
-                        const blob = await response.blob();
-                        zip.file(`${img.name}.png`, blob);
+                    for(const img of ready) {
+                        const res = await fetch(img.processed);
+                        zip.file(`${img.name}.png`, await res.blob());
                     }
-                    const content = await zip.generateAsync({ type: "blob" });
-                    const link = document.createElement('a');
-                    link.href = URL.createObjectURL(content);
-                    link.download = `stickers_${Date.now()}.zip`;
-                    link.click();
-                } catch (e) { setErrorMsg("下載失敗"); }
-                finally { setIsDownloading(false); }
+                    const content = await zip.generateAsync({type: "blob"});
+                    const url = window.URL.createObjectURL(content);
+                    const a = document.createElement('a'); a.href = url; a.download = `stickers_batch_${Date.now()}.zip`;
+                    document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+                } finally { setIsDownloading(false); }
             };
 
             const downloadToFolder = async () => {
-                if (!isFileSystemSupported) return;
-                const ready = images.filter(img => img.processed);
-                if (ready.length === 0) return;
+                const ready = images.filter(i => i.processed);
+                if (ready.length === 0 || !isFileSystemSupported) return;
                 try {
-                    const directoryHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
+                    const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
                     setIsDownloading(true);
                     for (const img of ready) {
-                        const fileHandle = await directoryHandle.getFileHandle(`${img.name}.png`, { create: true });
-                        const writable = await fileHandle.createWritable();
-                        const response = await fetch(img.processed);
-                        const blob = await response.blob();
-                        await writable.write(blob);
-                        await writable.close();
+                        const file = await handle.getFileHandle(`${img.name}.png`, { create: true });
+                        const writable = await file.createWritable();
+                        const res = await fetch(img.processed);
+                        await writable.write(await res.blob()); await writable.close();
                     }
-                } catch (err) { if (err.name !== 'AbortError') setErrorMsg("權限不足，請改用 ZIP"); }
-                finally { setIsDownloading(false); }
+                } finally { setIsDownloading(false); }
+            };
+
+            const handleLineMove = (type, index, e) => {
+                if (!imageRef.current) return;
+                const rect = imageRef.current.getBoundingClientRect();
+                const onMove = (me) => {
+                    const cX = me.touches ? me.touches[0].clientX : me.clientX;
+                    const cY = me.touches ? me.touches[0].clientY : me.clientY;
+                    // 核心修正：計算必須嚴格相對於圖片的渲染寬高，確保藍線不出界
+                    const percent = type === 'v' ? (cX - rect.left) / rect.width : (cY - rect.top) / rect.height;
+                    const clamped = Math.max(0, Math.min(1, percent));
+                    if (type === 'v') {
+                        setVLines(prev => { const next = [...prev]; next[index] = clamped; return next.sort((a,b)=>a-b); });
+                    } else {
+                        setHLines(prev => { const next = [...prev]; next[index] = clamped; return next.sort((a,b)=>a-b); });
+                    }
+                };
+                const onEnd = () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onEnd); window.removeEventListener('touchmove', onMove); window.removeEventListener('touchend', onEnd); };
+                window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onEnd);
+                window.addEventListener('touchmove', onMove, { passive: false }); window.addEventListener('touchend', onEnd);
+            };
+
+            const executeSlice = async (targets) => {
+                setIsProcessing(true);
+                try {
+                    const sortedV = [0, ...vLines, 1].sort((a,b)=>a-b);
+                    const sortedH = [0, ...hLines, 1].sort((a,b)=>a-b);
+                    const allNewSlices = [];
+                    for (const target of targets) {
+                        const img = await new Promise(res => { const i = new Image(); i.onload = () => res(i); i.src = target.processed || target.original; });
+                        for (let r = 0; r < sortedH.length - 1; r++) {
+                            for (let c = 0; c < sortedV.length - 1; c++) {
+                                const sx = Math.ceil(sortedV[c] * img.naturalWidth);
+                                const sy = Math.ceil(sortedH[r] * img.naturalHeight);
+                                const ex = Math.floor(sortedV[c+1] * img.naturalWidth);
+                                const ey = Math.floor(sortedH[r+1] * img.naturalHeight);
+                                const sw = ex - sx;
+                                const sh = ey - sy;
+                                if (sw <= 1 || sh <= 1) continue;
+                                const canvas = document.createElement('canvas'); canvas.width = sw; canvas.height = sh;
+                                const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = false; ctx.drawImage(img, sx, sy, sw, sh, 0, 0, sw, sh);
+                                allNewSlices.push({ id: Math.random().toString(36).substr(2, 9), original: canvas.toDataURL('image/png'), processed: !!target.processed ? canvas.toDataURL('image/png') : null, name: `${target.name}_${r+1}_${c+1}`, status: !!target.processed ? 'done' : 'pending' });
+                            }
+                        }
+                    }
+                    setImages(prev => [...prev.filter(i => !targets.find(t => t.id === i.id)), ...allNewSlices]);
+                } finally { setIsProcessing(false); setSlicingId(null); setIsBatchSliceOpen(false); }
+            };
+
+            const processAllPending = async () => {
+                const pending = images.filter(i => !i.processed);
+                if (pending.length === 0) return;
+                setIsProcessing(true);
+                try {
+                    for (const img of pending) {
+                        setImages(p => p.map(i => i.id === img.id ? {...i, status: 'processing'} : i));
+                        const res = await removeWhiteBackgroundSmart(img.original, tolerance);
+                        setImages(p => p.map(i => i.id === img.id ? {...i, processed: res, status: 'done'} : i));
+                    }
+                } finally { setIsProcessing(false); }
             };
 
             return (
-                <div className="min-h-screen bg-slate-50 p-4 md:p-8 font-sans text-slate-900 select-none">
-                    {errorMsg && (
-                        <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[1000] bg-red-600 text-white px-6 py-4 rounded-2xl shadow-2xl flex items-center gap-3 animate-in">
-                            <Icon name="alert" className="w-6 h-6" />
-                            <span className="font-bold">{errorMsg}</span>
-                            <button onClick={() => setErrorMsg(null)} className="ml-4"><Icon name="x" size={20}/></button>
+                <div className="flex flex-col h-full overflow-hidden bg-slate-50">
+                    <header className="shrink-0 px-4 sm:px-8 lg:px-14 py-4 sm:py-7 flex items-center justify-between gap-3 sm:gap-4 z-[80]">
+                        <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+                            <Icon name="scissors" className="text-blue-600 w-7 h-7 sm:w-9 sm:h-9 shrink-0" />
+                            <h1 className="text-xl sm:text-4xl font-black tracking-tight text-slate-900 truncate">LINE 貼圖智慧大師</h1>
                         </div>
-                    )}
+                        <div className="flex items-center gap-2">
+                            <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 text-white px-4 sm:px-9 py-2.5 sm:py-4 rounded-2xl font-black text-sm sm:text-base shadow-xl shadow-blue-600/20 active:scale-95 hover:bg-blue-700 transition-all flex items-center gap-2 shrink-0"><Icon name="upload" className="w-5 h-5" /><span className="hidden sm:inline">上傳貼圖圖片</span><span className="sm:hidden">上傳</span></button>
+                        </div>
+                        <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" multiple accept="image/*" />
+                    </header>
 
-                    <div className="max-w-7xl mx-auto">
-                        <header className="flex flex-col md:flex-row items-center justify-between mb-8 gap-6">
-                            <div>
-                                <h1 className="text-4xl font-black flex items-center justify-center md:justify-start gap-3">
-                                    <Icon name="scissors" className="text-blue-600 w-10 h-10" />
-                                    LINE 貼圖智慧大師
-                                </h1>
-                                <p className="text-slate-500 mt-2 font-medium flex items-center justify-center md:justify-start gap-2">
-                                    <Icon name="shield" className="text-green-500 w-5 h-5" />
-                                    進階版：互動式線條微調 + 色彩防護技術
-                                </p>
-                            </div>
-                            <button onClick={() => fileInputRef.current?.click()} className="bg-blue-600 hover:bg-blue-700 text-white px-10 py-4 rounded-3xl font-bold text-lg flex items-center gap-3 transition-all shadow-xl active:scale-95">
-                                <Icon name="upload" /> 上傳貼圖大圖
-                            </button>
-                            <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" multiple accept="image/*" />
-                        </header>
-
+                    <main className={`${images.length === 0 ? 'flex flex-col px-5 sm:px-8 lg:px-14 pb-6 sm:pb-8' : 'overflow-y-auto px-3 sm:px-4 py-3 sm:py-4 pb-20 bg-slate-100'} flex-1`}>
                         {images.length > 0 && !slicingId && !isBatchSliceOpen && (
-                            <div className="bg-white p-6 rounded-[2.5rem] mb-10 shadow-sm border border-slate-100 flex flex-wrap items-center justify-between gap-8 animate-in">
-                                <div className="flex items-center gap-8 flex-1 min-w-[300px]">
-                                    <div className="flex flex-col shrink-0 text-center">
-                                        <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">去背強度</span>
-                                        <span className="text-blue-600 font-black text-3xl font-mono">{tolerance}</span>
+                            <div className="bg-white rounded-[1.75rem] sm:rounded-[2rem] mb-4 sm:mb-6 shadow-sm border border-slate-200 px-4 sm:px-6 py-3.5 sm:py-4 flex flex-col xl:flex-row xl:items-center gap-3 xl:gap-6 animate-in">
+                                <div className="flex items-center gap-2.5 sm:gap-4 flex-1 min-w-[260px]">
+                                    <div className="text-left w-14 sm:w-16 shrink-0">
+                                        <div className="text-[10px] font-black text-slate-400 leading-none mb-1">去背強度</div>
+                                        <div className="text-blue-600 font-black text-3xl sm:text-3xl leading-none font-mono">{tolerance}</div>
                                     </div>
-                                    <input type="range" min="1" max="150" value={tolerance} onChange={(e) => setTolerance(parseInt(e.target.value))} className="flex-1 h-3 bg-slate-100 rounded-full appearance-none cursor-pointer accent-blue-600" />
+                                    <input type="range" min="1" max="150" value={tolerance} onChange={(e) => setTolerance(parseInt(e.target.value))} className="flex-1 min-w-0" />
+                                    <button onClick={processAllPending} disabled={isProcessing} className="bg-blue-600 text-white w-[118px] sm:w-[140px] h-[48px] sm:h-[52px] shrink-0 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-blue-600/15 active:scale-95 hover:bg-blue-700 disabled:opacity-60 whitespace-nowrap"><Icon name="magic" className={`w-5 h-5 shrink-0 ${isProcessing ? 'animate-pulse' : ''}`} /> 批次去背</button>
                                 </div>
-                                <div className="flex items-center gap-3 flex-wrap">
-                                    <button onClick={() => setIsBatchSliceOpen(true)} className="bg-indigo-50 text-indigo-600 hover:bg-indigo-100 px-6 py-4 rounded-2xl text-sm font-bold flex items-center gap-2 transition-all shadow-sm"><Icon name="grid" className="w-5 h-5" /> 批次切片微調</button>
-                                    <div className="w-[1px] h-10 bg-slate-100 mx-2 hidden md:block"></div>
-                                    <button onClick={processAll} disabled={isProcessing || isDownloading} className="bg-slate-900 text-white px-8 py-4 rounded-2xl text-sm font-bold flex items-center gap-2 hover:bg-slate-800 disabled:opacity-50 transition-all shadow-lg">{isProcessing ? <Icon name="refresh" className="animate-spin w-5 h-5" /> : <Icon name="refresh" className="w-5 h-5" />} 批次智慧去背</button>
-                                    <button onClick={downloadToFolder} disabled={!isFileSystemSupported || isDownloading} className={`px-6 py-4 rounded-2xl text-sm font-bold flex items-center gap-2 transition-all shadow-md ${!isFileSystemSupported ? 'bg-slate-100 text-slate-400' : 'bg-green-600 hover:bg-green-700 text-white'}`}><Icon name="folder" className="w-5 h-5" /> 存至資料夾</button>
-                                    <button onClick={downloadAsZip} disabled={isDownloading} className="bg-amber-500 text-white px-6 py-4 rounded-2xl text-sm font-bold flex items-center gap-2 hover:bg-amber-600 transition-all shadow-md"><Icon name="archive" className="w-5 h-5" /> 打包 ZIP</button>
-                                    <button onClick={() => setImages([])} className="p-4 bg-red-50 text-red-400 rounded-2xl hover:bg-red-500 hover:text-white transition-all"><Icon name="trash" className="w-6 h-6" /></button>
-                                </div>
-                            </div>
-                        )}
-
-                        {(slicingId || isBatchSliceOpen) && (
-                            <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-                                <div className="bg-white rounded-[3rem] max-w-6xl w-full max-h-[95vh] overflow-hidden shadow-2xl flex flex-col animate-in">
-                                    <div className="p-8 border-b flex justify-between items-center">
-                                        <div className="flex items-center gap-4">
-                                            <div className="bg-indigo-50 p-3 rounded-2xl"><Icon name="grid" className="text-indigo-600 w-8 h-8" /></div>
-                                            <h3 className="text-2xl font-black text-slate-800">互動式網格設定</h3>
-                                        </div>
-                                        <button onClick={() => {setSlicingId(null); setIsBatchSliceOpen(false);}} className="p-4 hover:bg-slate-100 rounded-full transition-all text-slate-400"><Icon name="x" className="w-8 h-8" /></button>
-                                    </div>
-                                    <div className="flex-1 overflow-auto p-10 flex flex-col lg:flex-row gap-12 select-none">
-                                        <div className="flex-1 bg-slate-100 rounded-[2.5rem] p-8 flex items-center justify-center min-h-[450px] relative">
-                                            <div ref={previewContainerRef} className="relative bg-white shadow-2xl rounded-xl overflow-hidden border-[10px] border-white max-w-full">
-                                                <img src={slicingId ? (images.find(i => i.id === slicingId)?.processed || images.find(i => i.id === slicingId)?.original) : (images[0]?.processed || images[0]?.original)} className="max-w-full h-auto block opacity-80 pointer-events-none" />
-                                                {/* 互動線條渲染 */}
-                                                {vLines.map((x, idx) => (
-                                                    <div key={`v-${idx}`} onMouseDown={(e) => handleLineMove('v', idx, e)} className="absolute top-0 bottom-0 w-2 cursor-col-resize z-20 group" style={{ left: `${x * 100}%`, transform: 'translateX(-50%)' }}>
-                                                        <div className="w-0.5 h-full mx-auto border-r-2 border-blue-500 border-dashed group-hover:border-solid group-hover:bg-blue-400/30 transition-all"></div>
-                                                    </div>
-                                                ))}
-                                                {hLines.map((y, idx) => (
-                                                    <div key={`h-${idx}`} onMouseDown={(e) => handleLineMove('h', idx, e)} className="absolute left-0 right-0 h-2 cursor-row-resize z-20 group" style={{ top: `${y * 100}%`, transform: 'translateY(-50%)' }}>
-                                                        <div className="h-0.5 w-full my-auto border-b-2 border-blue-500 border-dashed group-hover:border-solid group-hover:bg-blue-400/30 transition-all"></div>
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                        <div className="w-full lg:w-80 flex flex-col justify-between">
-                                            <div className="space-y-8">
-                                                <div className="bg-slate-50 p-6 rounded-3xl">
-                                                    <div className="flex justify-between mb-3 font-black text-slate-500 text-xs uppercase">橫向列數 (Cols): <span className="text-blue-600 text-lg">{grid.cols}</span></div>
-                                                    <input type="range" min="1" max="10" value={grid.cols} onChange={e => setGrid(g => ({...g, cols: parseInt(e.target.value)}))} className="w-full h-2 accent-blue-600 appearance-none bg-slate-200 rounded-full" />
-                                                </div>
-                                                <div className="bg-slate-50 p-6 rounded-3xl">
-                                                    <div className="flex justify-between mb-3 font-black text-slate-500 text-xs uppercase">縱向行數 (Rows): <span className="text-blue-600 text-lg">{grid.rows}</span></div>
-                                                    <input type="range" min="1" max="10" value={grid.rows} onChange={e => setGrid(g => ({...g, rows: parseInt(e.target.value)}))} className="w-full h-2 accent-blue-600 appearance-none bg-slate-200 rounded-full" />
-                                                </div>
-                                                <div className="p-5 bg-indigo-50 text-indigo-700 text-xs font-medium rounded-2xl leading-relaxed border border-indigo-100">
-                                                    💡 提示：您可以拖動圖片上的「藍色虛線」來對齊。先去背再切片可直接繼承透明度。
-                                                </div>
-                                            </div>
-                                            <button onClick={() => executeSlice(isBatchSliceOpen ? images : [images.find(i => i.id === slicingId)])} className="w-full bg-blue-600 hover:bg-blue-700 text-white py-6 rounded-[2.5rem] font-black text-xl shadow-2xl mt-8 active:scale-95 transition-all flex items-center justify-center gap-3"><Icon name="check" className="w-6 h-6" /> 確認切片</button>
-                                        </div>
-                                    </div>
+                                <div className="hidden xl:block h-10 w-px bg-slate-100"></div>
+                                <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 shrink-0 max-w-full">
+                                    <button onClick={() => setIsBatchSliceOpen(true)} className="bg-indigo-50 text-indigo-600 w-[118px] sm:w-[132px] h-[48px] sm:h-[52px] shrink-0 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 sm:gap-2 transition-all active:scale-95 hover:bg-indigo-100 shadow-lg shadow-indigo-600/5 whitespace-nowrap"><Icon name="grid" className="w-5 h-5 shrink-0" /> 批次切片</button>
+                                    {isFileSystemSupported && <button onClick={downloadToFolder} disabled={images.filter(i => i.processed).length === 0} className="bg-green-600 text-white w-[140px] h-[52px] shrink-0 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-2 shadow-lg shadow-green-600/15 active:scale-95 hover:bg-green-700 disabled:opacity-50 whitespace-nowrap"><Icon name="folder" className="w-5 h-5 shrink-0" /> 一鍵下載</button>}
+                                    <button onClick={downloadAsZip} disabled={images.filter(i => i.processed).length === 0} className="bg-amber-500 text-white w-[118px] sm:w-[132px] h-[48px] sm:h-[52px] shrink-0 rounded-2xl text-xs sm:text-sm font-black flex items-center justify-center gap-1.5 sm:gap-2 shadow-lg shadow-amber-500/15 active:scale-95 hover:bg-amber-600 disabled:opacity-50 whitespace-nowrap" title="打包 ZIP 是手機下載所有原圖的最優解"><Icon name="box" className="w-5 h-5 shrink-0" /> 打包 ZIP</button>
+                                    <button onClick={() => setImages([])} title="清除全部圖片" className="bg-red-50 text-red-500 w-[48px] sm:w-[52px] h-[48px] sm:h-[52px] shrink-0 rounded-2xl active:scale-95 hover:bg-red-100 transition-all flex items-center justify-center"><Icon name="trash" className="w-5 h-5" /></button>
                                 </div>
                             </div>
                         )}
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8 pb-32">
+                        {images.length === 0 && (
+                            <div onClick={() => fileInputRef.current?.click()} className="group flex-1 min-h-[420px] sm:min-h-[520px] border-[7px] border-dashed border-slate-200 rounded-[2.5rem] sm:rounded-[3.5rem] flex flex-col items-center justify-center text-slate-400 cursor-pointer transition-all duration-300 ease-out hover:border-blue-300 hover:bg-white hover:shadow-[0_28px_80px_rgba(37,99,235,0.12)] active:border-blue-400 active:bg-white active:scale-[0.995] animate-in">
+                                <Icon name="upload" className="mb-8 w-20 h-20 sm:w-28 sm:h-28 text-slate-200 transition-all duration-300 group-hover:text-blue-500 group-hover:-translate-y-1 group-active:text-blue-600 group-active:scale-95" />
+                                <h2 className="text-2xl sm:text-4xl font-black tracking-tight text-slate-700 text-center transition-colors duration-300 group-hover:text-slate-800">點擊此處上傳貼圖圖片</h2>
+                                <p className="text-sm sm:text-lg mt-5 max-w-sm text-center font-bold leading-relaxed text-slate-400 transition-colors duration-300 group-hover:text-slate-500">建議使用 Chrome 或 Edge 以支援「存至資料夾」功能。</p>
+                            </div>
+                        )}
+
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 pb-12">
                             {images.map((img) => (
-                                <div key={img.id} className="bg-white rounded-[2.5rem] overflow-hidden border border-slate-100 hover:shadow-2xl transition-all duration-500 group relative">
-                                    <div className="aspect-square relative flex items-center justify-center p-8 bg-slate-50/50 overflow-hidden">
-                                        {img.processed && <div className="absolute inset-0 opacity-10" style={{backgroundImage: 'conic-gradient(#000 0.25turn, #ccc 0.25turn 0.5turn, #000 0.5turn 0.75turn, #ccc 0.75turn)', backgroundSize: '20px 20px'}}></div>}
-                                        <img src={img.processed || img.original} className="max-w-full max-h-full object-contain relative z-10 transition-transform duration-700 group-hover:scale-110" />
-                                        {img.status === 'processing' && (
-                                            <div className="absolute inset-0 bg-white/90 backdrop-blur-sm z-20 flex flex-col items-center justify-center">
-                                                <Icon name="refresh" className="animate-spin text-blue-600 mb-4 w-12 h-12" />
-                                                <span className="text-[11px] font-black text-slate-400 uppercase tracking-widest">運算中...</span>
-                                            </div>
-                                        )}
+                                <div key={img.id} className="bg-white rounded-2xl overflow-hidden border border-slate-200 shadow-sm relative group animate-in">
+                                    <div className="aspect-square relative flex items-center justify-center p-4 bg-slate-50">
+                                        {img.processed && <div className="absolute inset-0 opacity-10" style={{backgroundImage: 'conic-gradient(#000 0.25turn, #ccc 0.25turn 0.5turn, #000 0.5turn 0.75turn, #ccc 0.75turn)', backgroundSize: '16px 16px'}}></div>}
+                                        <img src={img.processed || img.original} className="max-w-full max-h-full object-contain relative z-10" />
+                                        {img.status === 'processing' && <div className="absolute inset-0 bg-white/80 z-20 flex flex-col items-center justify-center"><Icon name="refresh" className="animate-spin text-blue-600 w-10 h-10" /></div>}
                                     </div>
-                                    <div className="p-6">
-                                        <span className="text-sm font-black text-slate-800 block truncate mb-5">{img.name}</span>
-                                        <div className="flex items-center gap-2">
+                                    <div className="p-3 bg-white border-t border-slate-100 flex items-center justify-between gap-2">
+                                        <span className="text-[10px] font-bold text-slate-500 truncate flex-1">{img.name}</span>
+                                        <div className="flex gap-1.5 shrink-0">
                                             {img.processed ? (
-                                                <button onClick={() => { const a = document.createElement('a'); a.href = img.processed; a.download = `${img.name}.png`; a.click(); }} className="flex-1 bg-green-50 text-green-600 py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-green-500 hover:text-white transition-all shadow-sm"><Icon name="download" className="w-4 h-4" /> 下載</button>
+                                                <button onClick={() => downloadSingle(img.processed, img.name)} className="bg-green-50 text-green-600 p-2.5 rounded-xl active:bg-green-100 transition-all shadow-sm"><Icon name="cloudDown" className="w-4 h-4" /></button>
                                             ) : (
-                                                <button onClick={() => {
-                                                    setImages(prev => prev.map(i => i.id === img.id ? { ...i, status: 'processing' } : i));
-                                                    removeWhiteBackgroundSmart(img.original, tolerance).then(res => {
-                                                        setImages(prev => prev.map(i => i.id === img.id ? { ...i, processed: res, status: 'done' } : i));
-                                                    });
-                                                }} disabled={isProcessing} className="flex-1 bg-blue-600 text-white py-3.5 rounded-2xl font-black text-xs flex items-center justify-center gap-2 hover:bg-blue-700 disabled:opacity-50 transition-all shadow-md"><Icon name="scissors" className="w-4 h-4" /> 智慧去背</button>
+                                                <button onClick={async () => {
+                                                    setImages(p => p.map(i => i.id === img.id ? {...i, status: 'processing'} : i));
+                                                    const res = await removeWhiteBackgroundSmart(img.original, tolerance);
+                                                    setImages(p => p.map(i => i.id === img.id ? {...i, processed: res, status: 'done'} : i));
+                                                }} className="bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-bold shadow-sm active:scale-90 transition-all flex items-center gap-1"><Icon name="magic" className="w-3 h-3" /> 去背</button>
                                             )}
-                                            <button onClick={() => setSlicingId(img.id)} className="p-3.5 bg-indigo-50 text-indigo-600 rounded-2xl hover:bg-indigo-600 hover:text-white transition-all"><Icon name="grid" className="w-5 h-5" /></button>
-                                            <button onClick={() => setImages(i => i.filter(x => x.id !== img.id))} className="p-3.5 bg-slate-50 text-slate-400 rounded-2xl hover:bg-red-500 hover:text-white transition-all"><Icon name="trash" className="w-5 h-5" /></button>
+                                            <button onClick={() => setSlicingId(img.id)} className="bg-indigo-50 text-indigo-600 p-2.5 rounded-xl active:scale-90 transition-all"><Icon name="grid" className="w-4 h-4" /></button>
+                                            <button onClick={() => setImages(i => i.filter(x => x.id !== img.id))} className="bg-slate-100 text-slate-400 p-2.5 rounded-xl active:scale-90 transition-all"><Icon name="trash" className="w-4 h-4" /></button>
                                         </div>
                                     </div>
                                 </div>
                             ))}
-                            {images.length > 0 && (
-                                <div onClick={() => fileInputRef.current?.click()} className="border-4 border-dashed border-slate-200 rounded-[2.5rem] flex flex-col items-center justify-center text-slate-300 hover:border-blue-300 hover:bg-white transition-all cursor-pointer min-h-[350px] group">
-                                    <Icon name="upload" className="mb-4 opacity-20 group-hover:text-blue-500 transition-all w-16 h-16" />
-                                    <span className="text-xs font-black uppercase">繼續新增圖片</span>
-                                </div>
-                            )}
                         </div>
+                    </main>
 
-                        {images.length === 0 && (
-                            <div onClick={() => fileInputRef.current?.click()} className="border-8 border-dashed border-slate-200 rounded-[4rem] p-32 flex flex-col items-center justify-center text-slate-400 hover:border-blue-300 hover:bg-white transition-all cursor-pointer group animate-in">
-                                <Icon name="image" className="mb-10 opacity-20 group-hover:text-blue-500 transition-all w-32 h-32" />
-                                <h2 className="text-4xl font-black text-slate-700 mb-4 tracking-tight uppercase">點擊或拖曳圖片到此處</h2>
-                                <p className="text-slate-400 font-medium text-center max-w-sm text-lg leading-relaxed">
-                                    互動微調版已整合。建議強度設為 70+ 以清除細微背景。
-                                </p>
+                    {/* 切片視窗 - 解決位移核心修正 */}
+                    {(slicingId || isBatchSliceOpen) && (
+                        <div className="fixed inset-0 bg-slate-950 z-[100] flex flex-col touch-none animate-in">
+                            <div className="h-14 px-4 border-b border-white/10 flex justify-between items-center text-white shrink-0 z-[160] bg-slate-900">
+                                <div className="flex items-center gap-2"><Icon name="grid" className="text-blue-400 w-5 h-5" /><h3 className="font-black text-sm uppercase">精準切片微調</h3></div>
+                                <button onClick={() => {setSlicingId(null); setIsBatchSliceOpen(false);}} className="p-2.5 bg-white/10 rounded-full active:bg-white/20"><Icon name="x" className="w-6 h-6" /></button>
                             </div>
-                        )}
-                    </div>
+                            
+                            <div className="workspace">
+                                {/* 關鍵修正：容器必須 100% 貼合圖片顯示區域，不留黑色溢出邊界 */}
+                                <div className="precise-image-container">
+                                    <img 
+                                        ref={imageRef}
+                                        src={slicingId ? (images.find(i => i.id === slicingId)?.processed || images.find(i => i.id === slicingId)?.original) : (images[0]?.processed || images[0]?.original)} 
+                                        className="pointer-events-none shadow-2xl" 
+                                    />
+                                    
+                                    {/* 垂直線：基準點鎖定為圖片容器內部 */}
+                                    {vLines.map((x, idx) => (
+                                        <div key={`v-${idx}`} onMouseDown={(e) => handleLineMove('v', idx, e)} onTouchStart={(e) => handleLineMove('v', idx, e)} className="absolute top-0 bottom-0 w-12 -ml-6 z-20 flex justify-center cursor-col-resize touch-none" style={{ left: `${x * 100}%` }}>
+                                            <div className="w-[1.5px] h-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,1)] border-x border-white/20"></div>
+                                        </div>
+                                    ))}
+                                    {/* 水平線：基準點鎖定為圖片容器內部 */}
+                                    {hLines.map((y, idx) => (
+                                        <div key={`h-${idx}`} onMouseDown={(e) => handleLineMove('h', idx, e)} onTouchStart={(e) => handleLineMove('h', idx, e)} className="absolute left-0 right-0 h-12 -mt-6 z-20 flex items-center cursor-row-resize touch-none" style={{ top: `${y * 100}%` }}>
+                                            <div className="h-[1.5px] w-full bg-blue-500 shadow-[0_0_12px_rgba(59,130,246,1)] border-y border-white/20"></div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className={`floating-sheet ${!isControlExpanded ? 'sheet-collapsed' : ''}`}>
+                                <button onClick={() => setIsControlExpanded(!isControlExpanded)} className="w-full h-[48px] flex flex-col items-center justify-center gap-1 hover:bg-slate-50 transition-colors">
+                                    <div className="w-10 h-1 bg-slate-200 rounded-full"></div>
+                                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-none">{isControlExpanded ? '點擊收合面板 (顯示大圖)' : '展開設定面板'}</span>
+                                </button>
+                                <div className="px-6 pb-12 pt-2 space-y-6 max-w-lg mx-auto">
+                                    <div className="grid grid-cols-2 gap-8">
+                                        <div className="space-y-1"><div className="flex justify-between font-black text-slate-500 text-[10px] uppercase">列數: <span className="text-blue-600 text-lg font-mono">{grid.cols}</span></div><input type="range" min="1" max="10" value={grid.cols} onChange={e => setGrid(g => ({...g, cols: parseInt(e.target.value)}))} /></div>
+                                        <div className="space-y-1"><div className="flex justify-between font-black text-slate-500 text-[10px] uppercase">行數: <span className="text-blue-600 text-lg font-mono">{grid.rows}</span></div><input type="range" min="1" max="10" value={grid.rows} onChange={e => setGrid(g => ({...g, rows: parseInt(e.target.value)}))} /></div>
+                                    </div>
+                                    <button onClick={() => executeSlice(isBatchSliceOpen ? images : [images.find(i => i.id === slicingId)])} className="w-full bg-blue-600 text-white py-5 rounded-[2rem] font-black text-lg shadow-2xl active:scale-95 transition-all flex items-center justify-center gap-3"><Icon name="check" className="w-6 h-6" /> 確認切片生成</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    
                     {(isProcessing || isDownloading) && (
-                        <div className="fixed bottom-10 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-10 py-6 rounded-[2.5rem] shadow-2xl flex items-center gap-6 z-[200]">
-                            <Icon name="refresh" className="animate-spin text-blue-400 w-8 h-8" />
-                            <span className="text-sm font-black uppercase tracking-widest">{isDownloading ? "儲存檔案中..." : "系統運算中..."}</span>
+                        <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[300] flex items-center justify-center animate-in">
+                            <div className="bg-white p-8 rounded-[2.5rem] shadow-2xl flex flex-col items-center gap-4">
+                                <Icon name="refresh" className="animate-spin text-blue-600 w-12 h-12" />
+                                <span className="text-sm font-black uppercase tracking-widest">{isDownloading ? "處理下載中..." : "AI 處理中..."}</span>
+                            </div>
                         </div>
                     )}
                 </div>
             );
         };
-
         const root = ReactDOM.createRoot(document.getElementById('root'));
         root.render(<App />);
     </script>
